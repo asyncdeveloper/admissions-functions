@@ -66,3 +66,6 @@ node_modules/
 
 # IDE Generated files
 .idea/
+
+#Firebase service account
+functions/service-account.json
