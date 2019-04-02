@@ -30,8 +30,7 @@ exports.updateUser = functions.firestore.document('users/{userId}').onUpdate((ch
                 updatedKeys.push(key);
             }
         }
-        console.log(`Updated Keys ${updatedKeys}`);
-
+        
         if(updatedKeys.length > 0 ) {
             let institutions = [];
             return admin.firestore().collection('federal-universities').get()
@@ -73,40 +72,90 @@ exports.updateUser = functions.firestore.document('users/{userId}').onUpdate((ch
                                         institutionsEligible.push({
                                             institution:institution,
                                             courses: coursesAvailableArray
-                                        });
-                                        //console.log(`${institution.name} offers ${coursesAvailableArray} with user made cutoff`);
-                                    }else {
-                                        //console.log(`${institution.name} offers ${coursesAvailableArray} but user did not make cut off`);
+                                        });                                    
                                     }
                                 }
                             }
                         }
                     }
-                    console.log(institutionsEligible);
+                
                     if(institutionsEligible.length > 0) {
-                        //Write to recommendations
-                        let batch = admin.firestore().batch();
-                        for (let item of institutionsEligible) {                            
-                            const data = {
-                                userId: userId,
-                                institutionId: item.institution.id,
-                                institution: item.institution.name,
-                                courses: item.courses,                    
-                                dateCreated: admin.firestore.FieldValue.serverTimestamp(),                            
-                            };
-                            const recommendationRef = admin.firestore().collection('recommendations').doc();
-                            batch.set(recommendationRef, data);
-                        }
-                        // Commit the batch
-                        return batch.commit().then( () => {
-                            return 'Recommendations saved';
-                        }).catch((err) =>{
-                            console.log(err);
-                        });
+                        
+                        admin.firestore().collection('recommendations').where('userId', '==', userId).get()
+                            .then(snapshot => {                                
+                                if (snapshot.empty) {
+                                    console.log('No matching documents to delete.');
+                                    return;
+                                }                                                                
+                                // Once we get the results, begin a batch
+                                let batch = admin.firestore().batch();
+                                snapshot.forEach(document => {
+                                     // For each doc, add a delete operation to the batch
+                                    batch.delete(document.ref);                                                                                                            
+                                });                                
+                                 // Commit the batch
+                                return batch.commit();                                
+                            }).then(() => {
+                                // Delete completed! && Write to recommendations
+                                let batch = admin.firestore().batch();
+                                for (let item of institutionsEligible) {                            
+                                    const data = {
+                                        userId: userId,
+                                        institutionId: item.institution.id,
+                                        institution: item.institution.name,
+                                        courses: item.courses,                    
+                                        dateCreated: admin.firestore.FieldValue.serverTimestamp(),                            
+                                    };
+                                    const recommendationRef = admin.firestore().collection('recommendations').doc();
+                                    batch.set(recommendationRef, data);
+                                }
+                                // Commit the batch
+                                return batch.commit().then( () => {
+                                    return console.log(`Recommendations saved for ${userId}`);
+                                }).catch((err) => {
+                                    return console.log(err);                        
+                                });
+                            }).catch(error => {
+                                return console.log(error);                        
+                            });                                                                        
                     }
-                    return null;
+                    return;
                 });
         }
     }
-    return null;
+    return;
+});
+
+exports.createRecommendation = functions.firestore.document('recommendations/{userId}').onCreate((snap, context) => {
+    
+    const newValue = snap.data();    
+    const userId = newValue.userId;
+    const institutionId = newValue.institutionId;
+    const recCourses = newValue.courses;
+    let courses = '';
+
+    recCourses.forEach((item) => {
+        courses+=` ${item} `
+    });
+    let newsTitle = `${newValue.institution} offers ${courses}`;
+
+    //get institution icon for imageUrl
+    return admin.firestore().collection('federal-universities').doc(institutionId).get().then(doc => {
+        const institutionIcon = doc.data().icon;
+        console.log('Icon', institutionIcon);
+
+        const data = {
+            title: 'You were just recommended an admission',
+            userId: userId,        
+            newsTitle: newsTitle,  
+            imageUrl: !institutionIcon ? '' : institutionIcon ,              
+            dateCreated: admin.firestore.FieldValue.serverTimestamp(),                            
+        };
+    
+        return admin.firestore().collection('notifications').add(data).then( writeResult => {
+            return console.log(`A Notification has been added for ${userId}`);
+        });
+            
+    });
+            
 });
